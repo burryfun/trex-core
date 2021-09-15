@@ -33,7 +33,7 @@ class PPPoETest(object):
         try:
             self.c.connect()
             # self.c.reset(ports = [0,1])
-            self.c.reset(ports = [0])
+            self.c.reset(ports = [0]) # Use of 1 port
             self.ctx  = self.c.create_service_ctx(port = self.port)
             
             # create clients
