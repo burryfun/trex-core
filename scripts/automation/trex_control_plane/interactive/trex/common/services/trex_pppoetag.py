@@ -3,7 +3,7 @@ from scapy.packet import *
 from scapy.layers.l2 import *
 from scapy.layers.inet import *
 from scapy.layers.ppp import *
-from scapy.layers.ppp import _PPP_proto
+from scapy.layers.ppp import _PPP_PROTOCOLS
 from scapy.fields import *
 from scapy.modules import six
 
@@ -252,7 +252,7 @@ class PPP_LCP_Protocol_Reject(PPP_LCP):
         XByteField("id", 0),
         FieldLenField("len", None, fmt="H", length_of="rejected_information",
                       adjust=lambda _, val: val + 6),
-        ShortEnumField("rejected_protocol", None, _PPP_proto),
+        ShortEnumField("rejected_protocol", None, _PPP_PROTOCOLS),
         PacketField("rejected_information", None, Packet),
     ]
 
