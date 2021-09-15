@@ -153,7 +153,7 @@ class ServicePPPOE(Service):
                     
                 self.log('PPPOE: {0} ---> PADI'.format(self.mac))
                 
-                padi = Ether(src=self.get_mac_bytes(),dst="ff:ff:ff:ff:ff:ff")/PPPoED(version=1,type=1,code="PADI",sessionid=0,len=0)
+                padi = Ether(src=self.get_mac_bytes(),dst="ff:ff:ff:ff:ff:ff")/PPPoED(version=1,type=1,code="PPPoE Active Discovery Initiation (PADI)",sessionid=0,len=0)
 
                 # send a discover message
                 yield pipe.async_tx_pkt(padi)
@@ -176,7 +176,7 @@ class ServicePPPOE(Service):
                     # print(offer.show())
                     if PPPoED not in offer:
                         continue
-                    if offer[PPPoED].code == PPPoED.code.s2i['PADO']:
+                    if offer[PPPoED].code == PPPoED.code.s2i['PPPoE Active Discovery Offer (PADO)']:
                         offers.append( offer )
                 
                 if not offers:
@@ -201,7 +201,7 @@ class ServicePPPOE(Service):
                 
                 self.log('PPPOE: {0} ---> PADR'.format(self.mac))
 
-                padr = Ether(src=self.get_mac(),dst=self.ac_mac)/PPPoED(version=1,type=1,code="PADR",sessionid=0,len=0)/PPPoED_Tags()
+                padr = Ether(src=self.get_mac(),dst=self.ac_mac)/PPPoED(version=1,type=1,code="PPPoE Active Discovery Request (PADR)",sessionid=0,len=0)/PPPoED_Tags()
                 padr[PPPoED_Tags] = self.tags
                 
                 # send the request
@@ -218,7 +218,7 @@ class ServicePPPOE(Service):
                     # print(offer.show())
                     if PPPoED not in offer:
                         continue
-                    if offer[PPPoED].code == PPPoED.code.s2i['PADS']:
+                    if offer[PPPoED].code == PPPoED.code.s2i['PPPoE Active Discovery Session-confirmation (PADS)']:
                         services.append( offer )
                 
                 if not services:
