@@ -84,7 +84,7 @@ class PPPoETest(object):
         streams = []
         for client in clients:
             record = client.get_record()
-            base_pkt = Ether(src=record.client_mac,dst=record.server_mac)/PPPoE(sessionid=record.sid)/PPP(proto="Internet Protocol version 4")/IP(src=record.client_ip,dst='8.8.8.8')/UDP()
+            base_pkt = Ether(src=record.client_mac,dst=record.server_mac)/PPPoE(sessionid=record.sid)/PPP(proto="Internet Protocol version 4")/IP(src=record.client_ip,dst=record.server_ip)/UDP()
             pkt = STLPktBuilder(pkt = base_pkt, vm = [])
             
             streams.append(STLStream(packet = pkt, mode = STLTXCont(pps = 1000)))
