@@ -70,7 +70,7 @@ class ServicePPPOE(Service):
     # PPPOE states
     INIT, SELECTING, REQUESTING, LCP, AUTH, IPCP, BOUND = range(7)
     
-    def __init__ (self, mac, verbose_level = Service.ERROR):
+    def __init__ (self, mac, verbose_level = Service.ERROR, username = "test", password = "test"):
 
         # init the base object
         super(ServicePPPOE, self).__init__(verbose_level)
@@ -88,6 +88,8 @@ class ServicePPPOE(Service):
 
         # States for PPPoE
         self.session_id = 0
+        self.username = username
+        self.password = password
 
         # States for LCP
         self.lcp_our_sent = False
@@ -277,7 +279,10 @@ class ServicePPPOE(Service):
 
                 # send the request
                 self.log("PPPOE: {0} ---> PAP CONF REQ".format(self.mac))
-                lcp_req = Ether(src=self.get_mac_bytes(),dst=self.ac_mac)/PPPoE(sessionid=self.session_id)/PPP(proto='Password Authentication Protocol')/PPP_PAP_Request(code='Authenticate-Request',username='1',password='1')
+                lcp_req =   Ether(src=self.get_mac_bytes(),dst=self.ac_mac)/ \
+                            PPPoE(sessionid=self.session_id)/ \
+                            PPP(proto='Password Authentication Protocol')/ \
+                            PPP_PAP_Request(code='Authenticate-Request',username=self.username,password=self.password)
                 # lcp_req.show2()
                 yield pipe.async_tx_pkt(lcp_req)
                 

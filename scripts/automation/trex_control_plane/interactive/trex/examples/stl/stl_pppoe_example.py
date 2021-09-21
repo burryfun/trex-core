@@ -28,7 +28,7 @@ class PPPoETest(object):
         self.port = port
         self.c    = STLClient()
         
-    def run (self, count):
+    def run (self, count, username, password):
             
         try:
             self.c.connect()
@@ -37,7 +37,7 @@ class PPPoETest(object):
             self.ctx  = self.c.create_service_ctx(port = self.port)
             
             # create clients
-            clients = self.setup(count)
+            clients = self.setup(count, username, password)
             if not clients:
                 print('\nno clients have sucessfully registered...exiting...\n')
                 exit(1)
@@ -58,14 +58,14 @@ class PPPoETest(object):
             
 
             
-    def setup (self, count):
+    def setup (self, count, username, password):
             
         # phase one - service context
         self.c.set_service_mode(ports = self.port)
         
         try:
             # create DHCP clients
-            clients = self.create_dhcp_clients(count)
+            clients = self.create_dhcp_clients(count, username, password)
             if not clients:
                 return
             
@@ -110,8 +110,8 @@ class PPPoETest(object):
 
         
         
-    def create_dhcp_clients (self, count):
-        pppoe_clients = [ServicePPPOE(mac = random_mac(), verbose_level = ServicePPPOE.ERROR) for _ in range(count)]
+    def create_dhcp_clients (self, count, username, password):
+        pppoe_clients = [ServicePPPOE(mac = random_mac(), verbose_level = ServicePPPOE.ERROR, username = username, password = password) for _ in range(count)]
 
         # execute all the registered services
         print('\n*** step 1: starting PPPoE acquire for {} clients ***\n'.format(len(pppoe_clients)))
@@ -135,11 +135,17 @@ class PPPoETest(object):
     
 def main ():
 
+    print('Enter username: ', end='')
+    username = input()
+
+    print('Enter password: ', end='')
+    password = input()
+
     print('How many PPPoE clients to create: ', end='')
     count = int(input())
 
     pppoe_test = PPPoETest(0)
-    pppoe_test.run(count)
+    pppoe_test.run(count, username, password)
     
    
 if __name__ == '__main__':
