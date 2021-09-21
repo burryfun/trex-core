@@ -91,7 +91,8 @@ class PPPoETest(object):
         
         self.c.add_streams(ports = self.port, streams = streams)
         self.c.start(ports = [0], mult = '100%')
-        self.c.wait_on_traffic(ports=[0,1])
+        # self.c.wait_on_traffic(ports=[0,1])
+        self.c.wait_on_traffic(ports=[0]) # Use of 1 port
         
         print('\n*** Done ***\n')
         
