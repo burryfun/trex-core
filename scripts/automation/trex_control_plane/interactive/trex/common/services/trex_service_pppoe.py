@@ -153,7 +153,8 @@ class ServicePPPOE(Service):
                     
                 self.log('PPPOE: {0} ---> PADI'.format(self.mac))
                 
-                padi = Ether(src=self.get_mac_bytes(),dst="ff:ff:ff:ff:ff:ff")/PPPoED(version=1,type=1,code="PPPoE Active Discovery Initiation (PADI)",sessionid=0,len=0)
+                # padi = Ether(src=self.get_mac_bytes(),dst="ff:ff:ff:ff:ff:ff")/PPPoED(version=1,type=1,code="PPPoE Active Discovery Initiation (PADI)",sessionid=0,len=0)
+                padi = Ether(src=self.get_mac_bytes(),dst="ff:ff:ff:ff:ff:ff")/PPPoED(version=1,type=1,code="PPPoE Active Discovery Initiation (PADI)",sessionid=0)/PPPoE_Tag(tag_type="Service-Name")
 
                 # send a discover message
                 yield pipe.async_tx_pkt(padi)
@@ -201,7 +202,7 @@ class ServicePPPOE(Service):
                 
                 self.log('PPPOE: {0} ---> PADR'.format(self.mac))
 
-                padr = Ether(src=self.get_mac(),dst=self.ac_mac)/PPPoED(version=1,type=1,code="PPPoE Active Discovery Request (PADR)",sessionid=0,len=0)/PPPoED_Tags()
+                padr = Ether(src=self.get_mac(),dst=self.ac_mac)/PPPoED(version=1,type=1,code="PPPoE Active Discovery Request (PADR)",sessionid=0)/PPPoED_Tags()
                 padr[PPPoED_Tags] = self.tags
                 
                 # send the request
