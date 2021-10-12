@@ -70,7 +70,7 @@ class ServicePPPOE(Service):
     # PPPOE states
     INIT, SELECTING, REQUESTING, LCP, AUTH, IPCP, BOUND = range(7)
     
-    def __init__ (self, mac, verbose_level = Service.ERROR, username = "test", password = "test"):
+    def __init__ (self, mac, counter, verbose_level = Service.ERROR, username = "test", password = "test"):
 
         # init the base object
         super(ServicePPPOE, self).__init__(verbose_level)
@@ -90,6 +90,7 @@ class ServicePPPOE(Service):
         self.session_id = 0
         self.username = username
         self.password = password
+        self.counter = counter
 
         # States for LCP
         self.lcp_our_sent = False
@@ -200,7 +201,12 @@ class ServicePPPOE(Service):
                 
             # REQUEST state
             elif self.state == 'REQUESTING':
-                self.retries = 5
+                # self.retries = 5
+
+                self.retries -= 1
+                if self.retries <= 0:
+                    print('#{0} PPPOE: {1}'.format(self.counter, self.mac))
+                    break
                 
                 self.log('PPPOE: {0} ---> PADR'.format(self.mac))
 
@@ -225,7 +231,7 @@ class ServicePPPOE(Service):
                         services.append( offer )
                 
                 if not services:
-                    self.log('PPPOE: {0} *** timeout on ack - retries left: {1}'.format(self.mac, self.retries), level = Service.ERROR)
+                    self.log('#{0} PPPOE: {1} *** timeout on ack - retries left: {2}'.format(self.counter, self.mac, self.retries), level = Service.ERROR)
                     self.state = 'INIT'
                     continue
                 
