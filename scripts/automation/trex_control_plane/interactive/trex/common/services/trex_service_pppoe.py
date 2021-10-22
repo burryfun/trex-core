@@ -330,6 +330,8 @@ class ServicePPPOE(Service):
                     if ipcp[PPP_IPCP].code == PPP_IPCP.code.s2i['Configure-Ack']:
                         self.log("PPPOE: {0} <--- IPCP CONF ACK".format(self.mac))
                         self.ipcp_our_negotiated = True
+                        self.ipcp_peer_negotiated  = True
+                        break
                     elif ipcp[PPP_IPCP].code == PPP_IPCP.code.s2i['Configure-Request']:
                         self.log("PPPOE: {0} <--- IPCP CONF REQ".format(self.mac))
                         for opt in ipcp[PPP_IPCP].options:
@@ -342,8 +344,6 @@ class ServicePPPOE(Service):
                         self.log("PPPOE: {0} ---> IPCP CONF ACK".format(self.mac))
                         yield pipe.async_tx_pkt(ipcp)
                         self.ipcp_peer_negotiated = True
-                        self.ipcp_our_negotiated  = True
-                        break
                     elif ipcp[PPP_IPCP].code == PPP_IPCP.code.s2i['Configure-Nak']:
                         for opt in ipcp[PPP_IPCP].options:
                             if isinstance(opt,PPP_IPCP_Option_IPAddress):
