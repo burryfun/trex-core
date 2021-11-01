@@ -30,7 +30,7 @@ class PPPoETest(object):
         self.port = port
         self.c    = STLClient()
         
-    def run (self, count, username, password):
+    def run (self, count, username, password, server_ip):
             
         try:
             self.c.connect()
@@ -45,7 +45,7 @@ class PPPoETest(object):
                 exit(1)
                 
             # inject traffic
-            self.inject(clients)
+            self.inject(clients, server_ip)
             
             # teardown - release clients
             self.teardown(clients)
@@ -85,7 +85,7 @@ class PPPoETest(object):
             self.c.set_service_mode(ports = self.port, enabled = False)
         
             
-    def inject (self, clients):
+    def inject (self, clients, server_ip):
         print('\n\nPress Return to generate high speed traffic from all clients...')
         wait_for_key()
         
@@ -94,7 +94,7 @@ class PPPoETest(object):
         streams = []
         for client in clients:
             record = client.get_record()
-            base_pkt = Ether(src=record.client_mac,dst=record.server_mac)/PPPoE(sessionid=record.sid)/PPP(proto="Internet Protocol version 4")/IP(src=record.client_ip,dst=record.server_ip)/UDP()
+            base_pkt = Ether(src=record.client_mac,dst=record.server_mac)/PPPoE(sessionid=record.sid)/PPP(proto="Internet Protocol version 4")/IP(src=record.client_ip,dst=server_ip)/UDP(sport=1024, dport=12)
             pkt = STLPktBuilder(pkt = base_pkt, vm = [])
             
             streams.append(STLStream(packet = pkt, mode = STLTXCont(pps = 1000)))
@@ -168,12 +168,13 @@ def main ():
     config.read(config_file)
 
 
-    username = config['DEFAULT']['username']
-    password = config['DEFAULT']['password']
-    count    = int(config['DEFAULT']['number_of_clients'])
+    username  = config['DEFAULT']['username']
+    password  = config['DEFAULT']['password']
+    count     = int(config['DEFAULT']['number_of_clients'])
+    server_ip = config['DEFAULT']['server_ip']
 
     pppoe_test = PPPoETest(0)
-    pppoe_test.run(count, username, password)
+    pppoe_test.run(count, username, password, server_ip)
     
    
 if __name__ == '__main__':
