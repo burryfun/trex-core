@@ -295,7 +295,7 @@ private:
 
     /* holds a graph of streams rate*/
     const TrexStreamsGraphObj  *m_graph_obj;
-    static const uint32_t MAX_STREAMS = 20000;
+    static const uint32_t MAX_STREAMS = 200000;
 
 };
 
