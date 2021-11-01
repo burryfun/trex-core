@@ -70,7 +70,7 @@ class ServicePPPOE(Service):
     # PPPOE states
     INIT, SELECTING, REQUESTING, LCP, AUTH, IPCP, BOUND = range(7)
     
-    def __init__ (self, mac, counter, verbose_level = Service.ERROR, username = "test", password = "test"):
+    def __init__ (self, mac, counter, terminated_clients, verbose_level = Service.ERROR, username = "test", password = "test"):
 
         # init the base object
         super(ServicePPPOE, self).__init__(verbose_level)
@@ -79,12 +79,14 @@ class ServicePPPOE(Service):
         
         self.mac        = mac
         self.mac_bytes  = self.mac2bytes(mac)
+        self.ac_ip      = '0.0.0.0'
         
         self.record = None
         self.state  = 'INIT'
 
         # Pkt queue
         self.pkt_queue = []
+        self.terminated_pkts = terminated_clients
 
         # States for PPPoE
         self.session_id = 0
@@ -201,12 +203,7 @@ class ServicePPPOE(Service):
                 
             # REQUEST state
             elif self.state == 'REQUESTING':
-                # self.retries = 5
-
-                self.retries -= 1
-                if self.retries <= 0:
-                    print('#{0} PPPOE: {1}'.format(self.counter, self.mac))
-                    break
+                self.retries = 5
                 
                 self.log('PPPOE: {0} ---> PADR'.format(self.mac))
 
@@ -328,6 +325,12 @@ class ServicePPPOE(Service):
                         self.pkt_queue.append( pkt )
                         continue
                     if ipcp[PPP_IPCP].code == PPP_IPCP.code.s2i['Configure-Ack']:
+
+                        for i in pkts:
+                            other = Ether(i)
+                            if PPPoED in other:
+                                self.terminated_pkts.add(other[Ether].dst)
+
                         self.log("PPPOE: {0} <--- IPCP CONF ACK".format(self.mac))
                         self.ipcp_our_negotiated = True
                         self.ipcp_peer_negotiated  = True
@@ -354,7 +357,16 @@ class ServicePPPOE(Service):
                     self.state = 'BOUND'
                 continue
             elif self.state == 'BOUND':
-                
+                # wait for response
+                pkts = yield pipe.async_wait_for_pkt(50)
+                pkts = [pkt['pkt'] for pkt in pkts]
+                pkts.extend( self.pkt_queue )
+
+                for pkt in pkts:
+                    other = Ether(pkt)
+                    if PPPoED in other:
+                        self.terminated_pkts.add(other[Ether].dst)
+
                 # parse the offer and save it
                 self.record = self.PPPOERecord(self)
                 break
