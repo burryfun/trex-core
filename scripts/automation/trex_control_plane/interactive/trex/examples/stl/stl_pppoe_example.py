@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import stl_path
+import configparser
 from trex.stl.api import *
 from trex.common.services.trex_service_pppoe import ServicePPPOE
 from time import perf_counter
@@ -69,8 +70,12 @@ class PPPoETest(object):
             time_start = perf_counter()
             clients = self.create_pppoe_clients(count, username, password)
             time_stop = perf_counter()
-            print('     Elapsed time: {0} s'.format(round( time_stop - time_start), 2))
-            print('     PPPoE negotiation rate: {0} clients per second'.format( round(len(clients) / (time_stop - time_start)) ))
+            diff = time_stop - time_start
+            if diff > 60:
+                print('     Elapsed time: {0}m {1}s'.format(round( diff/60 ), round( diff % 60 )))
+            else:
+                print('     Elapsed time: {0}s'.format(round( diff, 2)))
+            print('     PPPoE negotiation rate: {0} clients per second'.format( round(len(clients) / diff) ))
             if not clients:
                 return
             
@@ -84,7 +89,7 @@ class PPPoETest(object):
         print('\n\nPress Return to generate high speed traffic from all clients...')
         wait_for_key()
         
-        print('\n*** step 4: generating UDP traffic from {} clients ***\n'.format(len(clients)))
+        print('\n*** step 3: generating UDP traffic from {} clients ***\n'.format(len(clients)))
             
         streams = []
         for client in clients:
@@ -151,21 +156,21 @@ class PPPoETest(object):
         return bounded_pppoe_clients
         
     def release_dhcp_clients (self, clients):
-        print('\n*** step 5: starting PPPoE release for {} clients ***\n'.format(len(clients)))
+        print('\n*** step 4: starting PPPoE release for {} clients ***\n'.format(len(clients)))
         self.ctx.run(clients)
         
         
     
 def main ():
 
-    print('Enter username: ', end='')
-    username = input()
+    config = configparser.ConfigParser()
+    config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfg/settings.ini')
+    config.read(config_file)
 
-    print('Enter password: ', end='')
-    password = input()
 
-    print('How many PPPoE clients to create: ', end='')
-    count = int(input())
+    username = config['DEFAULT']['username']
+    password = config['DEFAULT']['password']
+    count    = int(config['DEFAULT']['number_of_clients'])
 
     pppoe_test = PPPoETest(0)
     pppoe_test.run(count, username, password)
