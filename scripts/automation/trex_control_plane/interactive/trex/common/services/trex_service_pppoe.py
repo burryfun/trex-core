@@ -358,7 +358,7 @@ class ServicePPPOE(Service):
                 continue
             elif self.state == 'BOUND':
                 # wait for response
-                pkts = yield pipe.async_wait_for_pkt(50)
+                pkts = yield pipe.async_wait_for_pkt(10)
                 pkts = [pkt['pkt'] for pkt in pkts]
                 pkts.extend( self.pkt_queue )
 
