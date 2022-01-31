@@ -19,6 +19,32 @@ from ..utils.text_opts import format_num
 from .trex_stl_packet_builder_interface import CTrexPktBuilderInterface
 from .trex_stl_packet_builder_scapy import *
 
+class STLPPPoEPktBuilder(STLPktBuilder):
+    def __init__(self, pkt = None, pkt_buffer = None, vm = None, path_relative_to_profile = False, build_raw = False, remove_fcs = True):
+        super(STLPPPoEPktBuilder, self).__init__(pkt = pkt, pkt_buffer = pkt_buffer, vm = vm, path_relative_to_profile = path_relative_to_profile, build_raw = build_raw, remove_fcs = remove_fcs)
+
+    # @classmethod
+    def __lazy_build_pppoe_packet (self):
+        # super().__lazy_build_packet()
+        # alrady built ? bail out
+        if self.is_pkt_built:
+            return
+
+        # for buffer, promote to a scapy packet
+        if self.pkt_raw:
+            self.pkt = Ether(self.pkt_raw)/PPPoE()/PPP(proto='Internet Protocol version 4')
+            self.pkt_raw = None
+
+        # regular scapy packet
+        elif not self.pkt:
+            # should not reach here
+            raise CTRexPacketBuildException(-11, 'Empty packet')
+
+        if self.remove_fcs and self.pkt.lastlayer().name == 'Padding':
+            self.pkt.lastlayer().underlayer.remove_payload()
+        
+        self.pkt.build()
+        self.is_pkt_built = True
 
 # base class for TX mode
 class STLTXMode(object):

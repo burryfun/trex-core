@@ -1,8 +1,9 @@
 #!/usr/bin/python
+# TODO: DELETE THIS IMPORT?
+from __future__ import print_function
 
 import stl_path
 import configparser
-import argparse
 from trex.stl.api import *
 from trex.common.services.trex_service_pppoe import ServicePPPOE
 from time import perf_counter, sleep
@@ -16,12 +17,20 @@ from threading import Thread
 from threading import Lock
 from queue import Queue
 from itertools import repeat
-from datetime import datetime, timedelta
-
 
 wait_for_key = input
 lock = Lock()
 
+
+# TODO: SPLIT PACKETS TO CHUNKS IN BIDIRECT MODE
+# """
+def chunks(lst, n):
+    # Yield successive n-sized chunks from lst.
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+# """
+
+CHUNK_SIZE = 100
 
 def random_mac ():
     c = partial(random.randint, 0 ,255)
@@ -30,7 +39,7 @@ def random_mac ():
 def random_mac_range (count):
     return [random_mac() for _ in range(count)]
 
-# generate a packet hook function with PPPoE in PCAP mode
+# generate a packet hook function with PPPoE 
 def packet_hook_generator(mac_src, mac_dst, session_id):
 
     def packet_hook (packet):
@@ -41,31 +50,77 @@ def packet_hook_generator(mac_src, mac_dst, session_id):
                     PPPoE(sessionid=session_id)/ \
                     PPP(proto='Internet Protocol version 4')/ \
                     packet_l3
-                    
+
         return packet.convert_to(Raw).load
         
+
     return packet_hook
 
 
-class pppoe_http_res():
-    def __init__(self, dst_mac, src_mac, sessionid, dst_ip, src_ip, dport, sport, seq, ack):
-        self.dst_mac = dst_mac
-        self.src_mac = src_mac
-        self.sessionid = sessionid
-        self.dst_ip = dst_ip
-        self.src_ip = src_ip
-        self.dport = dport
-        self.sport = sport
-        self.seq = seq
-        self.ack = ack
-         
+"""
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        for i in range(len(success_clients))
+        #executor.submit(TCP_handshake(run))
+"""
+
+def start_http_flow(queue, streams):
+
+    while not queue.empty():
+    # while True:
+        conn = queue.get()
+        client = conn.client
+        if conn.send_syn():
+            conn.send_ack()
+            # if conn.send_fin():
+                # conn.send_ack()
+            # else:
+                # conn.send_fin()
+                # conn.send_ack()
+                
+        else:
+            if not conn.send_syn():
+                conn.send_rst()
+            else:
+                conn.send_ack()
+                # conn.send_fin()
+                # conn.send_ack()
+
+        
+        #! НА KEEPALIVE СЕРВЕР ТОЖЕ ОТВЕЧАЕТ => МОЖНО ЭМУЛИРОВАТЬ ОТВЕТ С SEQ=LAST_SEQ ACK=LAST_ACK+1
+        if conn.get_keepalive_ack_pkt() != None:
+            pkt_ack = STLPktBuilder(pkt = conn.get_keepalive_ack_pkt(), vm = [])
+            # pkt_http = STLPktBuilder(pkt = conn.get_http_pkt(), vm = [])
+
+            ack_stream = STLStream(packet = pkt_ack, mode = STLTXCont(pps = 1))
+            # http_stream = STLStream(packet = pkt_http, mode = STLTXCont(pps = 1))
+            streams.append(ack_stream)
+
+        # record = self.client.get_record()
+        # record = client.get_record()
+
+        # if conn.seq:
+        #     http =  Ether(src=record.client_mac,dst=record.server_mac)/ \
+        #             PPPoE(sessionid=record.sid)/ \
+        #             PPP(proto="Internet Protocol version 4")/ \
+        #             IP(src=record.client_ip, dst=conn.server_ip)/ \
+        #             TCP(sport=1024, dport=80, flags='PA', seq=conn.seq, ack=conn.ack)/ \
+        #             'GET / HTTP/1.1\r\nHost: 192.168.1.10\r\n\r\n'
+
+        #     print(f'SEND_HTTP... from {record.client_ip}')
+        #     conn.c.push_packets(ports = [0], pkts = http, force = True)
+        # else:
+        #     print(f'NOTSEND_HTTP... from {record.client_ip}')
+
+        # queue.put(conn)
+        queue.task_done()
+        
 
 class PPPoETest(object):
     def __init__ (self, port):
         self.port = port
         self.c    = STLClient()
         
-    def run(self, config_settings, subscribers):
+    def run (self, config_settings, subscribers):
             
         try:
             self.c.connect()
@@ -75,9 +130,6 @@ class PPPoETest(object):
             
             # create clients
             clients = self.setup(config_settings, subscribers)
-
-            assert len(clients) != config_settings.count
-
             if not clients:
                 print('\nno clients have sucessfully registered...exiting...\n')
                 exit(1)
@@ -98,7 +150,7 @@ class PPPoETest(object):
             
 
             
-    def setup(self, config_settings, subscribers):
+    def setup (self, config_settings, subscribers):
             
         # phase one - service context
         self.c.set_service_mode(ports = self.port)
@@ -122,146 +174,154 @@ class PPPoETest(object):
         finally:
             self.c.set_service_mode(ports = self.port, enabled = False)
         
+    def TCP_handshake(self, client, config_settings):
+
+        streams = []
+
+        syn_ack = None
+
+        record = client.get_record()
+
+        syn = Ether(src=record.client_mac,dst=record.server_mac)/ \
+                    PPPoE(sessionid=record.sid)/ \
+                    PPP(proto="Internet Protocol version 4")/ \
+                    IP(src=record.client_ip, dst=config_settings.server_ip)/ \
+                    TCP(sport=1024, dport=80, flags='S')
+        
+        capture_syn = self.c.start_capture(rx_ports = [0], mode='fixed')
+        self.c.push_packets(ports = [0], pkts = syn, force = True)
+        rx_pkts = []
+        time.sleep(0.001)
+        self.c.stop_capture(capture_id = capture_syn['id'], output = rx_pkts)
+
+        for pkt in rx_pkts:
+            p = Ether(pkt['binary'])
+            if Ether in p:
+                if p[Ether].type == Ether.type.s2i['PPP_SES']:
+                    if p[PPPoE].sessionid == record.sid:
+                        if TCP in p:
+                            if p[TCP].flags == 'SA':
+                                syn_ack = p
+
+        # print("SYN_ACK DONE")
+
+        #! СЛОВИТЬ SYN_ACK ДОБАВИТЬ В МАССИВ ack[] http[] и Затем ОТПРАВИТЬ ACK[] http[]
     
-    def inject(self, clients, config_settings):
-        # print('\n\nPress Return to generate high speed traffic from all clients...')
-        # wait_for_key()
+        if syn_ack:
+            ack =   Ether(src=record.client_mac,dst=record.server_mac)/ \
+                    PPPoE(sessionid=record.sid)/ \
+                    PPP(proto="Internet Protocol version 4")/ \
+                    IP(src=record.client_ip, dst=config_settings.server_ip)/ \
+                    TCP(sport=1024, dport=80, flags='A', seq=syn_ack[TCP].ack, ack=syn_ack[TCP].seq+1)
+            # ack_pkts.append(ack)
+
+            # ack_pkts_split = list(chunks(ack_pkts, CHUNK_SIZE))
+            # for chunk in ack_pkts_split:
+                # self.c.push_packets(ports = [0], pkts = chunk, force = True)
+            # self.c.push_packets(ports = [0], pkts = ack, force = True)
+            # TODO: HOST SERVER
+            # TODO: KEEP ALIVE PACKET FOR 2'nd THREAD
+            http =  Ether(src=record.client_mac,dst=record.server_mac)/ \
+                            PPPoE(sessionid=record.sid)/ \
+                            PPP(proto="Internet Protocol version 4")/ \
+                            IP(src=record.client_ip, dst=config_settings.server_ip)/ \
+                            TCP(sport=1024, dport=80, flags='PA', seq=syn_ack[TCP].ack, ack=syn_ack[TCP].seq+1)/ \
+                            'GET / HTTP/1.1\r\nHost: 192.168.1.10\r\n\r\n'
+            
+            pkt_ack = STLPktBuilder(pkt = ack, vm = [])
+            pkt_http = STLPktBuilder(pkt = http, vm = [])
+
+            ack_stream = STLStream(packet = pkt_ack, mode = STLTXCont(pps = 1))
+            http_stream = STLStream(packet = pkt_http, mode = STLTXCont(pps = 1000))
+            
+            # streams.append(ack_stream)
+            # streams.append(http_stream)
+            # return streams
+            return http_stream
+
+
+
+    def inject (self, clients, config_settings):
+        print('\n\nPress Return to generate high speed traffic from all clients...')
+        wait_for_key()
         
         print('\n*** step 3: generating UDP traffic from {} clients ***\n'.format(len(clients)))
         
         if config_settings.mode == 'BIDIRECT':
+
             self.c.reset(ports = 0)
             self.c.set_service_mode(ports = self.port, enabled=True)
             self.c.acquire(ports=0, force=True, sync_streams=True)
             self.c.set_port_attr([0], promiscuous = True)
 
-            if config_settings.multithreading == 'true':
-                for client in clients:
-                    conn = TCP_handshake(client, config_settings, self.c)
-                    flow_thread = Thread(target=conn.start_keepalive_flow, args=())
-                    flow_thread.start()
-            
-            else:
-                # time_start = perf_counter()
-                # jobs = Queue()
-                while True:
-                    http_streams = []
-                    self.c.reset(ports = 0)
-                    self.c.set_service_mode(ports = self.port, enabled=True)
-                    self.c.acquire(ports=0, force=True, sync_streams=True)
-                    self.c.set_port_attr([0], promiscuous = True)
+            time_start = perf_counter()
+            jobs = Queue()
+            connections = []
+            for client in clients:
+                conn = TCP_handshake(client,config_settings, self.c)
+                # jobs.put(conn)
+                conn.send_syn()
+                conn.send_ack()
+                connections.append(conn)
+                
 
-                    # OPEN CONNECTIONS FOR CLIENTS
-                    connections = []
-                    for client in clients:
-                        conn = TCP_handshake(client, config_settings, self.c)
-                        connections.append(conn)
-                        # jobs.put(conn)
-                        conn.start()
-                        # conn.send_ack()
-                        http = conn.get_http_pkt()
-
-
-                        http_stream = STLStream(packet=STLPktBuilder(pkt=http), mode=STLTXSingleBurst(pps=1, total_pkts=1))
-                        http_streams.append(http_stream)
-
-                    # START HTTP FLOW
-                    print(f'CONNECTIONS: {len(connections)}')
-                    print('START HTTP FLOW')
-                    self.c.set_service_mode(ports = self.port, enabled=False)
-                    self.c.add_streams(ports = self.port, streams = http_streams)
+                # http_streams.append(http_stream)
+            self.c.set_service_mode(ports = self.port, enabled=False)
+            while True:
+                streams = []
+                self.c.reset(ports=self.port)
+                for conn in connections:
+                    if conn.get_keepalive_ack_pkt() != None:
+                        pkt_ack = STLPktBuilder(pkt = conn.get_keepalive_ack_pkt(), vm = [])
+                        ack_stream = STLStream(packet = pkt_ack, mode = STLTXSingleBurst(pps = 1, total_pkts=1))
+                        streams.append(ack_stream)
+                        conn.last_ack += 1
+                if len(connections) > 0:
+                    self.c.add_streams(ports = self.port, streams = streams)
                     self.c.start(ports = [0], mult = '100pps')
-                    print('STOP HTTP FLOW')
-
-                    print('CLOSE CONNECTIONS')
-
-                    # CAPTURE OK PACKETS
-                    self.c.reset(ports = 0)
-                    self.c.set_service_mode(ports = self.port, enabled=True)
-                    self.c.acquire(ports=0, force=True, sync_streams=True)
-                    self.c.set_port_attr([0], promiscuous = True)
-                    capture_ok = self.c.start_capture(rx_ports = [0], mode='fixed')
-                    rx_pkts = []
-                    time.sleep(2)
-                    self.c.stop_capture(capture_id = capture_ok['id'], output = rx_pkts)
+                
 
 
-                    responses = dict()
-                    for pkt in rx_pkts:
-                        p = Ether(pkt['binary'])
-                        if Ether in p:
-                            if p[Ether].type == Ether.type.s2i['PPP_SES']:
-                                # if p[PPPoE].sessionid == record.sid:
-                                if TCP in p:
-                                    if p[TCP].flags == 'PA':
-                                        res = pppoe_http_res( 
-                                                        p[Ether].dst,
-                                                        p[Ether].src,
-                                                        p[PPPoE].sessionid,
-                                                        p[IP].dst,
-                                                        p[IP].src,
-                                                        p[TCP].dport,
-                                                        p[TCP].sport,
-                                                        p[TCP].seq,
-                                                        p[TCP].ack,
-                                                        )
-                                        responses[res.dst_mac] = res
-                                        # p.show()
-                                        # if p[TCP].flags == 'A':
-                        #                     syn_ack = p
-                    print(f'count responses: {len(responses)}')
-                    # SEND FIN
-                    #self.c.reset(ports = 0)
-                    #self.c.set_service_mode(ports = self.port, enabled=True)
-                    for res in responses.values():
-                        fin_ack_req =   Ether(src=res.dst_mac,dst=res.src_mac)/ \
-                                PPPoE(sessionid=res.sessionid)/ \
-                                PPP(proto="Internet Protocol version 4")/ \
-                                IP(src=res.dst_ip, dst=res.src_ip)/ \
-                                TCP(sport=res.dport, dport=res.sport, flags='FA', seq=res.ack, ack=res.seq+1)
-            
-                        capture_fin = self.c.start_capture(rx_ports = [0], mode='fixed')
-                        self.c.push_packets(ports = [0], pkts = fin_ack_req, force = True)
-                        rx_pkts_res = []
-                        time.sleep(0.01)
-                        self.c.stop_capture(capture_id = capture_fin['id'], output = rx_pkts_res)
-                        # print(f'fin_ack {res.dst_ip} sended')
+            # start_http_flow(jobs, streams)
+                
+                # print(f'\nPress Return to generate HTTP traffic from {conn.get_estab_conn()} clients...')
+                # wait_for_key()
+                # flow_thread = Thread(target=conn.start_http_flow, args=(jobs,))
+                # flow_thread.start()
+            #! С ПОТОКАМИ БОЛЬШУЮ ЧАСТЬ SYN_ACK'ов не принимает
+            # for thread in range(10):
+                # threading.Thread(target=start_http_flow, args=(jobs,)).start()
+            #! ПОПРОБОВАТЬ ПОСЛЕ SYN-SYN_ACK-ACK -- СТАРТОВАТЬ ПОТОК ИЗ KEEPALIVE_ACK, HTTP
+            #! STLTXSingleBurst
+            #! FIN CONNECTION 
+            #! REPEAT CYCLE
 
-                        # RECIEVE FIN_ACK
-                        fin_ack_res = None
-                        for pkt in rx_pkts_res:
-                            p = Ether(pkt['binary'])
-                            if Ether in p:
-                                if p[Ether].type == Ether.type.s2i['PPP_SES']:
-                                    # if p[PPPoE].sessionid == record.sid:
-                                    if TCP in p:
-                                        if p[TCP].flags == 'FA':
-                                            fin_ack_res = pppoe_http_res(
-                                                            p[Ether].dst,
-                                                            p[Ether].src,
-                                                            p[PPPoE].sessionid,
-                                                            p[IP].dst,
-                                                            p[IP].src,
-                                                            p[TCP].dport,
-                                                            p[TCP].sport,
-                                                            p[TCP].seq,
-                                                            p[TCP].ack,
-                                                            )
-                                            # print(f'fin_ack {res.dst_ip} recieved')
-                                        # p.show()
-                                            
+                # connections = self.TCP_handshake(client, config_settings)
+                # if connections:
+                #     # http_streams.append(connections)
+                #     http_streams.append(connections[0])
+                #     http_streams.append(connections[1])
 
-                        # SEND ACK
-                        if fin_ack_res:
-                            ack =   Ether(src=fin_ack_res.dst_mac,dst=fin_ack_res.src_mac)/ \
-                                    PPPoE(sessionid=fin_ack_res.sessionid)/ \
-                                    PPP(proto="Internet Protocol version 4")/ \
-                                    IP(src=fin_ack_res.dst_ip, dst=fin_ack_res.src_ip)/ \
-                                    TCP(sport=fin_ack_res.dport, dport=fin_ack_res.sport, flags='A', seq=fin_ack_res.ack, ack=fin_ack_res.seq+1)
-                            self.c.push_packets(ports = [0], pkts = ack, force = True)
-                            # print(f'ack {res.dst_ip} sended')
-                    print('CLOSE CONNECTIONS DONE')
-                    sleep(100)
+            # with concurrent.futures.ThreadPoolExecutor() as executor:
+            #     # for client in clients:
+            #     future_to_streams = {executor.submit(self.TCP_handshake, client, config_settings) : client for client in clients}
+            #     for stream in concurrent.futures.as_completed(future_to_streams):
+            #         if stream.result() != None:
+            #             http_streams.append(stream.result())
+
+            time_stop = perf_counter()
+            print(f'Elapsed time {time_stop-time_start}')
+            # 1 thread - 28.4s
+            # 2 threads - 14.3s
+            print('\nPress Return to generate HTTP traffic from {} clients...'.format(len(streams)))
+            wait_for_key()
+
+            # HTTP FLOW
+            self.c.reset(ports=self.port)
+            self.c.set_service_mode(ports = self.port, enabled=False)
+            self.c.add_streams(ports = self.port, streams = streams)
+            #! MULTIPLIER = 100 pkts???
+            self.c.start(ports = [0], mult = '100pps')
 
             
         elif config_settings.mode == 'PCAP':
@@ -320,21 +380,22 @@ class PPPoETest(object):
                     streams.append(STLStream(packet = pkt_2, mode = STLTXCont(pps = 1000)))
 
             self.c.add_streams(ports = self.port, streams = streams)
-            self.c.start(ports = [0], mult = '100%', duration=config_settings.duration)
+            self.c.start(ports = [0], mult = '100%')
 
         # self.c.wait_on_traffic(ports=[0,1])
         self.c.wait_on_traffic(ports=[0]) # Use of 1 port
         
         print('\n*** Done ***\n')
         
-    def teardown(self, clients, config_settings):
+    def teardown (self, clients, config_settings):
+        # TODO: FIN_ACK FOR BIDIRECT TCP SESSION
         if config_settings.mode in ('PCAP', 'BIDIRECT'):
             stats = self.c.get_stats()
             opackets = stats[self.port]['opackets']
             print("{0} packets were Tx on port {1}\n".format(opackets, self.port))
         else:
-            # print('\n\nPress Return to release all DHCP clients...')
-            # wait_for_key()
+            print('\n\nPress Return to release all DHCP clients...')
+            wait_for_key()
             
             try:
                 # move back to service mode for releasing DHCPs
@@ -346,7 +407,7 @@ class PPPoETest(object):
 
         
         
-    def create_pppoe_clients(self, config_settings, subscribers):
+    def create_pppoe_clients (self, config_settings, subscribers):
         pppoe_clients = []
         terminated_clients = set()
         for i in range (config_settings.count):
@@ -393,45 +454,20 @@ class PPPoETest(object):
 class TCP_handshake():
 
     __estab_conn = 0
-    __keepalive_interval = 5
-    __keepalive_timeout = 20
+    __keepalive_interval = 10
 
     def __init__(self, client, config_settings, STLClient):
         self.seq = 0
         self.ack = 0
+        self.last_ack = 0
         self.keepalive_time = 0
         self.c = STLClient
 
         self.client = client
         self.server_ip = config_settings.server_ip
-        self.last_update = None
 
     def get_estab_conn(self):
         return TCP_handshake.__estab_conn
-
-    def start(self):
-        if self.send_syn():
-            self.send_ack()
-            return True
-        else:
-            if not self.send_syn():
-                self.send_rst()
-                return False
-            else:
-                self.send_ack()
-                return True
-        
-    def close(self):
-        if self.send_fin():
-            self.send_ack()
-            print(f'CONN CLOSED FOR {self.client.get_record().client_ip}')
-        else:
-            if not self.send_fin():
-                print(f'CONN FOR {self.client.get_record().client_ip} NOT CLOSED')
-            else:
-                self.send_ack()
-                print(f'CONN CLOSED FOR {self.client.get_record().client_ip}')
-
 
     def send_syn(self):
         print("SEND_SYN...")
@@ -443,12 +479,12 @@ class TCP_handshake():
                     PPPoE(sessionid=record.sid)/ \
                     PPP(proto="Internet Protocol version 4")/ \
                     IP(src=record.client_ip, dst=self.server_ip)/ \
-                    TCP(sport=1024, dport=80, flags='S', seq=self.seq)
-
+                    TCP(sport=1024, dport=80, flags='S')
+        
         capture_syn = self.c.start_capture(rx_ports = [0], mode='fixed')
         self.c.push_packets(ports = [0], pkts = syn, force = True)
         rx_pkts = []
-        time.sleep(0.01)
+        time.sleep(0.001)
         self.c.stop_capture(capture_id = capture_syn['id'], output = rx_pkts)
 
         for pkt in rx_pkts:
@@ -459,19 +495,23 @@ class TCP_handshake():
                         if TCP in p:
                             if p[TCP].flags == 'SA':
                                 syn_ack_pkt = p
-                                self.seq = syn_ack_pkt[TCP].ack
-                                self.ack = syn_ack_pkt[TCP].seq+1
+                                # self.seq = syn_ack_pkt[TCP].ack
+                                # self.ack = syn_ack_pkt[TCP].seq+1
+                                self.seq = syn_ack_pkt[TCP].seq
+                                self.ack = syn_ack_pkt[TCP].ack
+                                self.last_ack = self.seq
                                 return True
                                 # print(self.seq)
                                 # print(self.ack)
-                            else:
-                                return False
+        return False
+
 
 
     def send_ack(self):
         record = self.client.get_record()
 
         if self.seq:
+            TCP_handshake.__estab_conn += 1
             print(f'SEND_ACK... from {record.client_ip}')
 
 
@@ -479,32 +519,91 @@ class TCP_handshake():
                         PPPoE(sessionid=record.sid)/ \
                         PPP(proto="Internet Protocol version 4")/ \
                         IP(src=record.client_ip, dst=self.server_ip)/ \
-                        TCP(sport=1024, dport=80, flags='A', seq=self.seq, ack=self.ack)
+                        TCP(sport=1024, dport=80, flags='A', seq=self.ack, ack=self.seq+1)
 
             self.c.push_packets(ports = [0], pkts = ack, force = True)
             print("SEND_ACK DONE...")
-        # else:
-        #     #! CLOSE CONNECTION
-        #     print(f'NOT ACK FOR {record.client_ip}')
+        else:
+            print(f'NOT ACK FOR {record.client_ip}')
+
+    def send_fin(self):
+        fin_ack_pkt = None
+
+        record = self.client.get_record()
+
+        fin = Ether(src=record.client_mac,dst=record.server_mac)/ \
+                    PPPoE(sessionid=record.sid)/ \
+                    PPP(proto="Internet Protocol version 4")/ \
+                    IP(src=record.client_ip, dst=self.server_ip)/ \
+                    TCP(sport=1024, dport=80, flags='FA', seq=self.seq, ack=self.ack)
+        
+        capture_fin = self.c.start_capture(rx_ports = [0], mode='fixed')
+        self.c.push_packets(ports = [0], pkts = fin, force = True)
+        rx_pkts = []
+        time.sleep(0.001)
+        self.c.stop_capture(capture_id = capture_fin['id'], output = rx_pkts)
+
+        for pkt in rx_pkts:
+            p = Ether(pkt['binary'])
+            if Ether in p:
+                if p[Ether].type == Ether.type.s2i['PPP_SES']:
+                    if p[PPPoE].sessionid == record.sid:
+                        if TCP in p:
+                            if p[TCP].flags == 'FA':
+                                fin_ack_pkt = p
+                                self.seq = fin_ack_pkt[TCP].ack
+                                self.ack = fin_ack_pkt[TCP].seq+1
+                                return True
+                                # print(self.seq)
+                                # print(self.ack)
+                            # else:
+                            #     return False
+        return False
+
+    def send_rst(self):
+        record = self.client.get_record()
+        rst = Ether(src=record.client_mac,dst=record.server_mac)/ \
+                PPPoE(sessionid=record.sid)/ \
+                PPP(proto="Internet Protocol version 4")/ \
+                IP(src=record.client_ip, dst=self.server_ip)/ \
+                TCP(sport=1024, dport=80, flags='R')
+
+        self.c.push_packets(ports = [0], pkts = rst, force = True)
+        print(f'SEND_RST FOR {record.client_ip}')
+
 
     def send_keepalive_ack(self):
         record = self.client.get_record()
 
-        ack =   Ether(src=record.client_mac,dst=record.server_mac)/ \
+        if self.seq:
+            TCP_handshake.__estab_conn += 1
+            print("SEND_KEEPALIVE_ACK...")
+
+            ack =   Ether(src=record.client_mac,dst=record.server_mac)/ \
                         PPPoE(sessionid=record.sid)/ \
                         PPP(proto="Internet Protocol version 4")/ \
                         IP(src=record.client_ip, dst=self.server_ip)/ \
-                        TCP(sport=1024, dport=80, flags='A', seq=self.seq-1, ack=self.ack)
+                        TCP(sport=1024, dport=80, flags='A', seq=self.seq-1, ack=self.last_ack)
 
-        print(f'SEND_KEEPALIVE... from {record.client_ip}')
-        capture_http = self.c.start_capture(rx_ports = [0], mode='fixed')
-        self.c.push_packets(ports = [0], pkts = ack, force = True)
-        rx_pkts = []
-        time.sleep(1)
-        self.c.stop_capture(capture_id = capture_http['id'], output = rx_pkts)
-        return rx_pkts
+            self.c.push_packets(ports = [0], pkts = ack, force = True)
+            print("SEND_KEEPALIVE_ACK DONE...")
+        else:
+            print(f'NOT KEEPALIVE_ACK FOR {record.client_ip}')
+    
+    def get_keepalive_ack_pkt(self):
+        if self.ack:
+            record = self.client.get_record()
+            keepalive_ack =   Ether(src=record.client_mac,dst=record.server_mac)/ \
+                            PPPoE(sessionid=record.sid)/ \
+                            PPP(proto="Internet Protocol version 4")/ \
+                            IP(src=record.client_ip, dst=self.server_ip)/ \
+                            TCP(sport=1024, dport=80, flags='A', seq=self.ack-1, ack=self.last_ack)
+            return keepalive_ack
+        else:
+            return None
 
     def get_ack_pkt(self):
+        record = self.client.get_record()
         ack =   Ether(src=record.client_mac,dst=record.server_mac)/ \
                         PPPoE(sessionid=record.sid)/ \
                         PPP(proto="Internet Protocol version 4")/ \
@@ -522,105 +621,59 @@ class TCP_handshake():
                 'GET / HTTP/1.1\r\nHost: 192.168.1.10\r\n\r\n'
         return http
 
-    def send_fin(self):
-        fin_ack_pkt = None
+    def start_http_flow(self, queue):
 
-        record = self.client.get_record()
+        while not queue.empty():
+        # while True:
+            self.send_syn()
+            self.send_ack()
 
-        fin = Ether(src=record.client_mac,dst=record.server_mac)/ \
-                    PPPoE(sessionid=record.sid)/ \
-                    PPP(proto="Internet Protocol version 4")/ \
-                    IP(src=record.client_ip, dst=self.server_ip)/ \
-                    TCP(sport=1024, dport=80, flags='FA', seq=self.seq, ack=self.ack)
-        
-        capture_fin = self.c.start_capture(rx_ports = [0], mode='fixed')
-        self.c.push_packets(ports = [0], pkts = fin, force = True)
-        rx_pkts = []
-        time.sleep(0.1)
-        self.c.stop_capture(capture_id = capture_fin['id'], output = rx_pkts)
+            # record = self.client.get_record()
+            queue_value = queue.get()
+            client = queue_value.client
+            record = client.get_record()
 
-        for pkt in rx_pkts:
-            p = Ether(pkt['binary'])
-            if Ether in p:
-                if p[Ether].type == Ether.type.s2i['PPP_SES']:
-                    if p[PPPoE].sessionid == record.sid:
-                        if TCP in p:
-                            if p[TCP].flags == 'FA':
-                                fin_ack_pkt = p
-                                self.seq = fin_ack_pkt[TCP].ack
-                                self.ack = fin_ack_pkt[TCP].seq+1
-                                return True
-                                # print(self.seq)
-                                # print(self.ack)
-            # p.show()
-            return False
-                            # else:
-                            #     return False
+            if self.seq:
+                http =  Ether(src=record.client_mac,dst=record.server_mac)/ \
+                        PPPoE(sessionid=record.sid)/ \
+                        PPP(proto="Internet Protocol version 4")/ \
+                        IP(src=record.client_ip, dst=self.server_ip)/ \
+                        TCP(sport=1024, dport=80, flags='PA', seq=self.seq, ack=self.ack)/ \
+                        'GET / HTTP/1.1\r\nHost: 192.168.1.10\r\n\r\n'
 
-    def send_rst(self):
-        record = self.client.get_record()
-        rst = Ether(src=record.client_mac,dst=record.server_mac)/ \
-                PPPoE(sessionid=record.sid)/ \
-                PPP(proto="Internet Protocol version 4")/ \
-                IP(src=record.client_ip, dst=self.server_ip)/ \
-                TCP(sport=1024, dport=80, flags='R')
+                print(f'SEND_HTTP... from {record.client_ip}')
+                self.c.push_packets(ports = [0], pkts = http, force = True)
+            else:
+                print(f'NOTSEND_HTTP... from {record.client_ip}')
+            sleep(1)
+            queue.put(queue_value)
 
-        self.c.push_packets(ports = [0], pkts = rst, force = True)
-        print(f'SEND_RST FOR {record.client_ip}')
-
-    def start_keepalive_flow(self):
-        if not self.start():
-            return
-        
-        record = self.client.get_record()
-        
-        self.send_keepalive_ack()
-        self.last_update = datetime.now()
-
-        start_time = perf_counter()
-        while((perf_counter() - start_time) < TCP_handshake.__keepalive_timeout):
-            if ((datetime.now() - timedelta(seconds=TCP_handshake.__keepalive_interval)) > self.last_update):
+            """
+            while True:
+                self.c.push_packets(ports = [0], pkts = http, force = True)
+                sleep(1)
+                self.keepalive_time += 1
+                if self.keepalive_time > TCP_handshake.__keepalive_interval:
+                    self.keepalive_time = 0
+                    self.send_keepalive_ack()
+            """
                 
-                rx_pkts = self.send_keepalive_ack()
+        
 
-                for pkt in rx_pkts:
-                    p = Ether(pkt['binary'])
-                    if Ether in p:
-                        if p[Ether].type == Ether.type.s2i['PPP_SES']:
-                            if p[PPPoE].sessionid == record.sid:
-                                if TCP in p:
-                                    if p[TCP].flags == 'A':
-                                        self.seq = p[TCP].ack
-                                        self.ack = p[TCP].seq
-                                        self.last_update = datetime.now()
-                                        print(f'KEEPALIVE RECIEVED FROM {record.client_ip}')
-                                    else:
-                                        print(f'KEEPALIVE NOT RECIEVED FROM {record.client_ip}')
-                sleep(TCP_handshake.__keepalive_interval)
-        self.close()
-                
+
 
 class ConfigSettings:
     def __init__(self, cfg):
         # self.username   = cfg['DEFAULT']['username']
         # self.password   = cfg['DEFAULT']['password']
-        self.count      = int(cfg['DEFAULT']['number_of_clients'])
+        self.count      = int(cfg['DEFAULT']['number_of_clients'])  
         self.server_ip  = cfg['DEFAULT']['server_ip']
         self.mode       = cfg['DEFAULT']['mode']
         self.payload    = cfg['DEFAULT']['payload']
-        if ( int(cfg['DEFAULT']['duration']) > 0 ): 
-            self.duration = int(cfg['DEFAULT']['duration']) * 60
-        else:
-            print('\nERROR: payload duration < 1 min\n')
-            exit(1)
         self.pcap_file  = cfg['DEFAULT']['pcap_file']
-        self.multithreading = 'true'
     
-def main():
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config_path', type=str, required=True)
-    args = parser.parse_args()
+def main ():
+    # TODO: ADD FILEPATH TO SUBSCRIBERS.JSON (db/subscribers.json)
 
     # parse jsonfile
     json_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'db/subscribers.json')
@@ -628,10 +681,15 @@ def main():
     subscribers = json_parser.deserialize()
     # parse configfile
     config = configparser.ConfigParser()
-    # config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfg/settings.ini')
-    config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), args.config_path)
+    config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfg/settings.ini')
     config.read(config_file)
     config_settings = ConfigSettings(config)
+
+
+    # username  = config['DEFAULT']['username']
+    # password  = config['DEFAULT']['password']
+    # count     = int(config['DEFAULT']['number_of_clients'])
+    # server_ip = config['DEFAULT']['server_ip']
 
     pppoe_test = PPPoETest(0)
     pppoe_test.run(config_settings, subscribers)
