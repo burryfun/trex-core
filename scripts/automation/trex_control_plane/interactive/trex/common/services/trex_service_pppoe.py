@@ -379,14 +379,17 @@ class ServicePPPOE(Service):
         '''
         self.log('PPPOE: {0} ---> RELEASING'.format(self.mac))
         
-        release_pkt = parser.release(self.xid,
-                                     self.record.client_mac,
-                                     ipv4_str_to_num(self.record.client_ip),
-                                     self.record.server_mac,
-                                     ipv4_str_to_num(self.record.server_ip))
+        padt = Ether(src=self.get_mac(),dst=self.ac_mac)/PPPoED(version=1,type=1,code="PPPoE Active Discovery Terminate (PADT)",sessionid=self.session_id)/PPPoED_Tags()
+
+        # release_pkt = parser.release(self.xid,
+        #                              self.record.client_mac,
+        #                              ipv4_str_to_num(self.record.client_ip),
+        #                              self.record.server_mac,
+        #                              ipv4_str_to_num(self.record.server_ip))
         
-        yield pipe.async_tx_pkt(release_pkt)
-        
+        # yield pipe.async_tx_pkt(release_pkt)
+        yield pipe.async_tx_pkt(padt)
+        pkts = yield pipe.async_wait_for_pkt(3)
         # clear the record
         self.record = None
         

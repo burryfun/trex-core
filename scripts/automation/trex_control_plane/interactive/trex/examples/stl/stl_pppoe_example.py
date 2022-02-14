@@ -76,11 +76,11 @@ class PPPoETest(object):
             # create clients
             clients = self.setup(config_settings, subscribers)
 
-            assert len(clients) != config_settings.count
-
             if not clients:
                 print('\nno clients have sucessfully registered...exiting...\n')
                 exit(1)
+
+            assert len(clients) == config_settings.count
                 
             # inject traffic
             self.inject(clients, config_settings)
